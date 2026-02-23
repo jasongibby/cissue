@@ -2,15 +2,12 @@
 set -euo pipefail
 
 # Install dependencies
-if ! command -v fzf &>/dev/null; then
-  echo "Installing fzf..."
-  brew install fzf
-fi
-
-if ! command -v figlet &>/dev/null; then
-  echo "Installing figlet..."
-  brew install figlet
-fi
+for cmd in gh fzf figlet jq; do
+  if ! command -v "$cmd" &>/dev/null; then
+    echo "Installing $cmd..."
+    brew install "$cmd"
+  fi
+done
 
 # Install cissue
 INSTALL_DIR="${HOME}/.local/bin"

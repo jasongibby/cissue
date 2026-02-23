@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 CONFIG_DIR="${HOME}/.config/cissue"
 CONFIG_FILE="${CONFIG_DIR}/config"
 CACHE_TTL=300  # seconds (5 minutes)
 
 # Load config if it exists
-[[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE"
+if [[ -f "$CONFIG_FILE" ]]; then
+  OWNER=$(grep '^OWNER=' "$CONFIG_FILE" | head -1 | cut -d= -f2 | tr -d '"')
+fi
 
 # Parse flags
 FORCE_REFRESH=0
@@ -39,12 +42,32 @@ HELP
   exit 0
 fi
 
+# Check dependencies
+missing=()
+for cmd in gh fzf figlet jq; do
+  command -v "$cmd" &>/dev/null || missing+=("$cmd")
+done
+if [[ ${#missing[@]} -gt 0 ]]; then
+  echo "Missing dependencies: ${missing[*]}" >&2
+  echo "Install with: brew install ${missing[*]}" >&2
+  exit 1
+fi
+
+if ! gh auth status &>/dev/null; then
+  echo "Not logged in to GitHub. Run: gh auth login" >&2
+  exit 1
+fi
+
 # Org setup
 setup_org() {
   printf "Enter your GitHub org name: " >&2
   read -r org_name
   if [[ -z "$org_name" ]]; then
     echo "Org name cannot be empty." >&2
+    exit 1
+  fi
+  if [[ ! "$org_name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    echo "Invalid org name. Use only letters, numbers, hyphens, underscores." >&2
     exit 1
   fi
   mkdir -p "$CONFIG_DIR"
@@ -68,6 +91,7 @@ fi
 CURRENT_REPO=""
 if [[ "$GLOBAL" -eq 0 ]]; then
   CURRENT_REPO=$(gh repo view --json name --jq .name 2>/dev/null || true)
+  CURRENT_REPO="${CURRENT_REPO//[^a-zA-Z0-9._-]/}"
 fi
 
 if [[ -n "$CURRENT_REPO" ]]; then
