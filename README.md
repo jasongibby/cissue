@@ -12,15 +12,16 @@ A fast, fuzzy GitHub issue picker for the terminal. Browse your assigned issues,
 - 5-minute local cache for near-instant repeat launches
 - Launch Claude directly on an issue with a single keystroke
 
-## Requirements
-
-- [gh](https://cli.github.com/) — GitHub CLI, authenticated
-- [fzf](https://github.com/junegunn/fzf) — fuzzy finder
-- [figlet](http://www.figlet.org/) — ASCII art title
-- [jq](https://stedolan.github.io/jq/) — JSON processing
-- macOS (uses `pbcopy` for clipboard)
-
 ## Install
+
+```bash
+brew tap jasongibby/tap
+brew install cissue
+```
+
+Dependencies (`gh`, `fzf`, `figlet`, `jq`) are installed automatically. Requires macOS (uses `pbcopy` for clipboard).
+
+### Manual install
 
 ```bash
 git clone https://github.com/jasongibby/cissue.git
