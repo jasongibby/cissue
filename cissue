@@ -1,16 +1,68 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-OWNER="aptive-env"
+CONFIG_DIR="${HOME}/.config/cissue"
+CONFIG_FILE="${CONFIG_DIR}/config"
 CACHE_TTL=300  # seconds (5 minutes)
+
+# Load config if it exists
+[[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE"
 
 # Parse flags
 FORCE_REFRESH=0
 GLOBAL=0
+SET_ORG=0
+SHOW_HELP=0
 for arg in "$@"; do
   [[ "$arg" == "-r" || "$arg" == "--refresh" ]] && FORCE_REFRESH=1
   [[ "$arg" == "-g" || "$arg" == "--global" ]]  && GLOBAL=1
+  [[ "$arg" == "--set-org" ]]                    && SET_ORG=1
+  [[ "$arg" == "--help" ]]                        && SHOW_HELP=1
 done
+
+# Show help and exit
+if [[ "$SHOW_HELP" -eq 1 ]]; then
+  cat <<'HELP'
+Usage: cissue [options]
+
+Options:
+  -g, --global      Show issues across all org repos (default: current repo)
+  -r, --refresh     Force cache refresh
+      --set-org     Change your GitHub org
+      --help        Show this help message
+
+Keybindings (in picker):
+  Enter      Copy issue number to clipboard
+  Ctrl+o     Open issue in Claude
+  Esc        Exit
+HELP
+  exit 0
+fi
+
+# Org setup
+setup_org() {
+  printf "Enter your GitHub org name: " >&2
+  read -r org_name
+  if [[ -z "$org_name" ]]; then
+    echo "Org name cannot be empty." >&2
+    exit 1
+  fi
+  mkdir -p "$CONFIG_DIR"
+  echo "OWNER=\"$org_name\"" > "$CONFIG_FILE"
+  OWNER="$org_name"
+  echo "Org set to '$org_name'. Saved to $CONFIG_FILE" >&2
+}
+
+if [[ "$SET_ORG" -eq 1 ]]; then
+  setup_org
+  rm -f "${HOME}/.cache/cissue-"*.txt
+  exit 0
+fi
+
+if [[ -z "${OWNER:-}" ]]; then
+  echo "Welcome to cissue! Let's set up your GitHub org." >&2
+  setup_org
+fi
 
 # Detect current repo (falls back to global if not in a git repo)
 CURRENT_REPO=""
@@ -67,7 +119,7 @@ else
   if [[ "$cache_age" -gt "$CACHE_TTL" ]]; then
     fetch_and_cache
   else
-    echo "Using cached issues (${cache_age}s old, refresh with -r)..." >&2
+    : # using cache silently
   fi
 fi
 
@@ -84,9 +136,9 @@ HEADER=$(
 )
 
 if [[ -n "$CURRENT_REPO" ]]; then
-  FOOTER=$'\033[2m  showing: \033[0m\033[1m'"$CURRENT_REPO"$'\033[0m\033[2m  │  -g for all issues  │  -r to refresh cache\033[0m'
+  FOOTER=$'\033[2m  showing: \033[0m\033[1m'"$CURRENT_REPO"$'\033[0m\033[2m  │  -g for all issues  │  -r to refresh cache ('"${CACHE_TTL}"$'s ttl)\033[0m'
 else
-  FOOTER=$'\033[2m  showing: \033[0m\033[1mall repos\033[0m\033[2m  │  -r to refresh cache\033[0m'
+  FOOTER=$'\033[2m  showing: \033[0m\033[1mall repos\033[0m\033[2m  │  -r to refresh cache ('"${CACHE_TTL}"$'s ttl)\033[0m'
 fi
 
 result=$(fzf \

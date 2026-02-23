@@ -30,19 +30,21 @@ bash install.sh
 
 ## Configuration
 
-Open `cissue` in a text editor and set your GitHub org at the top:
+On first run, `cissue` will prompt for your GitHub org name and save it to `~/.config/cissue/config`. To change it later:
 
 ```bash
-OWNER="your-org-name"
+cissue --set-org
 ```
 
 ## Usage
 
 ```bash
-cissue          # issues in the current repo
-cissue -g       # all issues across the org
-cissue -r       # force refresh the cache
-cissue -g -r    # global + force refresh
+cissue              # issues in the current repo
+cissue -g           # all issues across the org
+cissue -r           # force refresh the cache
+cissue -g -r        # global + force refresh
+cissue --set-org    # change your GitHub org
+cissue --help       # show all options
 ```
 
 ### Keybindings
