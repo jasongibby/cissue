@@ -18,6 +18,8 @@ SET_ORG=0
 SHOW_HELP=0
 INTERNAL_RELOAD=0
 INTERNAL_HEADER=0
+INTERNAL_TOGGLE=0
+INTERNAL_FOOTER=0
 for arg in "$@"; do
   [[ "$arg" == "-r" || "$arg" == "--refresh" ]] && FORCE_REFRESH=1
   [[ "$arg" == "-g" || "$arg" == "--global" ]]  && GLOBAL=1
@@ -25,6 +27,8 @@ for arg in "$@"; do
   [[ "$arg" == "--help" ]]                        && SHOW_HELP=1
   [[ "$arg" == "--_reload" ]]                     && INTERNAL_RELOAD=1
   [[ "$arg" == "--_header" ]]                     && INTERNAL_HEADER=1
+  [[ "$arg" == "--_toggle" ]]                     && INTERNAL_TOGGLE=1
+  [[ "$arg" == "--_footer" ]]                     && INTERNAL_FOOTER=1
 done
 
 # Internal: print header for fzf transform-header (no deps needed beyond figlet)
@@ -32,7 +36,18 @@ if [[ "$INTERNAL_HEADER" -eq 1 ]]; then
   figlet -f slant "cissue" | while IFS= read -r line; do
     printf '\033[36m%s\033[0m\n' "$line"
   done
-  printf '\n\033[2m  Enter: copy issue #  │  Ctrl+o: launch Claude  │  Ctrl+r: refresh\033[0m'
+  printf '\n\033[2m  Enter: copy issue #  │  Ctrl+o: Claude  │  Ctrl+r: refresh  │  Ctrl+g: toggle scope\033[0m'
+  exit 0
+fi
+
+# Internal: print footer showing current scope
+if [[ "$INTERNAL_FOOTER" -eq 1 ]]; then
+  mode=$(cat "${TOGGLE_FILE:?}")
+  if [[ "$mode" == "repo" ]]; then
+    printf '\033[2m  showing: \033[0m\033[1m%s\033[0m\033[2m  │  Ctrl+g for all issues\033[0m' "${CURRENT_REPO:?}"
+  else
+    printf '\033[2m  showing: \033[0m\033[1mall repos\033[0m\033[2m  │  Ctrl+g for repo issues\033[0m'
+  fi
   exit 0
 fi
 
@@ -51,13 +66,14 @@ Keybindings (in picker):
   Enter      Copy issue number to clipboard
   Ctrl+o     Open issue in Claude
   Ctrl+r     Refresh issue list
+  Ctrl+g     Toggle repo/global scope
   Esc        Exit
 HELP
   exit 0
 fi
 
 # Skip validation for internal fzf callbacks (already verified on initial run)
-if [[ "$INTERNAL_RELOAD" -eq 0 ]]; then
+if [[ "$INTERNAL_RELOAD" -eq 0 && "$INTERNAL_TOGGLE" -eq 0 ]]; then
 
 # Check dependencies
 missing=()
@@ -107,7 +123,7 @@ fi
 fi # end skip validation
 
 # Detect current repo (falls back to global if not in a git repo)
-# Internal reload passes these as env vars to skip the slow gh repo view call
+# Internal callbacks pass these as env vars to skip the slow gh repo view call
 if [[ -z "${CACHE_FILE:-}" ]]; then
   CURRENT_REPO=""
   if [[ "$GLOBAL" -eq 0 ]]; then
@@ -115,12 +131,20 @@ if [[ -z "${CACHE_FILE:-}" ]]; then
     CURRENT_REPO="${CURRENT_REPO//[^a-zA-Z0-9._-]/}"
   fi
 
+  GLOBAL_CACHE="${HOME}/.cache/cissue-global.txt"
+  GLOBAL_SCOPE="org:$OWNER"
+
   if [[ -n "$CURRENT_REPO" ]]; then
-    CACHE_FILE="${HOME}/.cache/cissue-${CURRENT_REPO}.txt"
-    SEARCH_SCOPE="repo:$OWNER/$CURRENT_REPO"
+    REPO_CACHE="${HOME}/.cache/cissue-${CURRENT_REPO}.txt"
+    REPO_SCOPE="repo:$OWNER/$CURRENT_REPO"
+  fi
+
+  if [[ -n "$CURRENT_REPO" && "$GLOBAL" -eq 0 ]]; then
+    CACHE_FILE="$REPO_CACHE"
+    SEARCH_SCOPE="$REPO_SCOPE"
   else
-    CACHE_FILE="${HOME}/.cache/cissue-global.txt"
-    SEARCH_SCOPE="org:$OWNER"
+    CACHE_FILE="$GLOBAL_CACHE"
+    SEARCH_SCOPE="$GLOBAL_SCOPE"
   fi
 fi
 
@@ -159,7 +183,48 @@ fetch_and_cache() {
 
 # Internal: reload data for fzf reload action (skip dep/auth checks)
 if [[ "$INTERNAL_RELOAD" -eq 1 ]]; then
+  # If toggling is active, refresh whichever scope is current
+  if [[ -n "${TOGGLE_FILE:-}" && -f "$TOGGLE_FILE" ]]; then
+    mode=$(cat "$TOGGLE_FILE")
+    if [[ "$mode" == "repo" ]]; then
+      CACHE_FILE="${REPO_CACHE:?}"
+      SEARCH_SCOPE="${REPO_SCOPE:?}"
+    else
+      CACHE_FILE="${GLOBAL_CACHE:?}"
+      SEARCH_SCOPE="${GLOBAL_SCOPE:?}"
+    fi
+  fi
   fetch_and_cache
+  cat "$CACHE_FILE"
+  exit 0
+fi
+
+# Internal: toggle between repo and global scope
+if [[ "$INTERNAL_TOGGLE" -eq 1 ]]; then
+  if [[ -z "${REPO_CACHE:-}" ]]; then
+    echo "No repo context to toggle to" >&2
+    cat "${GLOBAL_CACHE:?}"
+    exit 0
+  fi
+  mode=$(cat "${TOGGLE_FILE:?}")
+  if [[ "$mode" == "repo" ]]; then
+    CACHE_FILE="${GLOBAL_CACHE:?}"
+    SEARCH_SCOPE="${GLOBAL_SCOPE:?}"
+    echo "global" > "$TOGGLE_FILE"
+  else
+    CACHE_FILE="$REPO_CACHE"
+    SEARCH_SCOPE="$REPO_SCOPE"
+    echo "repo" > "$TOGGLE_FILE"
+  fi
+  # Use cache if fresh, otherwise fetch
+  if [[ -f "$CACHE_FILE" ]]; then
+    cache_age=$(( $(date +%s) - $(stat -f %m "$CACHE_FILE") ))
+    if [[ "$cache_age" -gt "$CACHE_TTL" ]]; then
+      fetch_and_cache
+    fi
+  else
+    fetch_and_cache
+  fi
   cat "$CACHE_FILE"
   exit 0
 fi
@@ -168,7 +233,7 @@ print_header() {
   figlet -f slant "cissue" | while IFS= read -r line; do
     printf '\033[36m%s\033[0m\n' "$line"
   done
-  printf '\n\033[2m  Enter: copy issue #  │  Ctrl+o: launch Claude  │  Ctrl+r: refresh\033[0m'
+  printf '\n\033[2m  Enter: copy issue #  │  Ctrl+o: Claude  │  Ctrl+r: refresh  │  Ctrl+g: toggle scope\033[0m'
 }
 
 # Use cache if fresh, otherwise fetch
@@ -190,11 +255,19 @@ fi
 
 HEADER=$(print_header)
 
-if [[ -n "$CURRENT_REPO" ]]; then
-  FOOTER=$'\033[2m  showing: \033[0m\033[1m'"$CURRENT_REPO"$'\033[0m\033[2m  │  -g for all issues  │  -r to refresh cache ('"${CACHE_TTL}"$'s ttl)\033[0m'
+# Track current mode for Ctrl+G toggling
+TOGGLE_FILE=$(mktemp /tmp/cissue-mode.XXXXXX)
+trap 'rm -f "$TOGGLE_FILE"' EXIT
+if [[ -n "$CURRENT_REPO" && "$GLOBAL" -eq 0 ]]; then
+  echo "repo" > "$TOGGLE_FILE"
+  FOOTER=$'\033[2m  showing: \033[0m\033[1m'"$CURRENT_REPO"$'\033[0m\033[2m  │  Ctrl+g for all issues\033[0m'
 else
-  FOOTER=$'\033[2m  showing: \033[0m\033[1mall repos\033[0m\033[2m  │  -r to refresh cache ('"${CACHE_TTL}"$'s ttl)\033[0m'
+  echo "global" > "$TOGGLE_FILE"
+  FOOTER=$'\033[2m  showing: \033[0m\033[1mall repos\033[0m\033[2m  │  Ctrl+g for repo issues\033[0m'
 fi
+
+# Env vars passed to internal callbacks so they skip re-detection
+TOGGLE_ENV="TOGGLE_FILE='$TOGGLE_FILE' CURRENT_REPO='${CURRENT_REPO:-}' CACHE_TTL='$CACHE_TTL' OWNER='$OWNER' REPO_CACHE='${REPO_CACHE:-}' REPO_SCOPE='${REPO_SCOPE:-}' GLOBAL_CACHE='$GLOBAL_CACHE' GLOBAL_SCOPE='$GLOBAL_SCOPE'"
 
 result=$(fzf \
   --ansi \
@@ -202,7 +275,8 @@ result=$(fzf \
   --with-nth=2.. \
   --bind='enter:become(echo "number:{1}")' \
   --bind='ctrl-o:become(echo "prompt:{1}")' \
-  --bind="ctrl-r:transform-header(printf '  Refreshing...')+reload(CACHE_FILE='$CACHE_FILE' SEARCH_SCOPE='$SEARCH_SCOPE' $0 --_reload)+transform-header($0 --_header)" \
+  --bind="ctrl-r:transform-header(printf '  Refreshing...')+reload($TOGGLE_ENV $0 --_reload)+transform-header($0 --_header)" \
+  --bind="ctrl-g:transform-header(printf '  Switching...')+reload($TOGGLE_ENV $0 --_toggle)+transform-header($0 --_header)+transform-footer($TOGGLE_ENV $0 --_footer)" \
   --header="$HEADER" \
   --header-first \
   --footer="$FOOTER" \

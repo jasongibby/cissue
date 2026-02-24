@@ -56,6 +56,7 @@ cissue --help       # show all options
 | `Enter` | Copy issue number to clipboard |
 | `Ctrl+o` | Launch Claude on the issue |
 | `Ctrl+r` | Refresh issue list |
+| `Ctrl+g` | Toggle repo/global scope |
 | `Esc` | Exit |
 
 ## How it works
