@@ -55,6 +55,7 @@ cissue --help       # show all options
 | `↑↓` | Navigate |
 | `Enter` | Copy issue number to clipboard |
 | `Ctrl+o` | Launch Claude on the issue |
+| `Ctrl+r` | Refresh issue list |
 | `Esc` | Exit |
 
 ## How it works
