@@ -17,12 +17,14 @@ GLOBAL=0
 SET_ORG=0
 SHOW_HELP=0
 INTERNAL_RELOAD=0
+INTERNAL_HEADER=0
 for arg in "$@"; do
   [[ "$arg" == "-r" || "$arg" == "--refresh" ]] && FORCE_REFRESH=1
   [[ "$arg" == "-g" || "$arg" == "--global" ]]  && GLOBAL=1
   [[ "$arg" == "--set-org" ]]                    && SET_ORG=1
   [[ "$arg" == "--help" ]]                        && SHOW_HELP=1
   [[ "$arg" == "--_reload" ]]                     && INTERNAL_RELOAD=1
+  [[ "$arg" == "--_header" ]]                     && INTERNAL_HEADER=1
 done
 
 # Show help and exit
@@ -138,10 +140,22 @@ fetch_and_cache() {
     ' > "$CACHE_FILE"
 }
 
-# Internal reload: fetch and output to stdout for fzf reload action
+print_header() {
+  figlet -f slant "cissue" | while IFS= read -r line; do
+    printf '\033[36m%s\033[0m\n' "$line"
+  done
+  printf '\n\033[2m  Enter: copy issue #  │  Ctrl+o: launch Claude  │  Ctrl+r: refresh\033[0m'
+}
+
+# Internal actions for fzf bind callbacks
 if [[ "$INTERNAL_RELOAD" -eq 1 ]]; then
   fetch_and_cache
   cat "$CACHE_FILE"
+  exit 0
+fi
+
+if [[ "$INTERNAL_HEADER" -eq 1 ]]; then
+  print_header
   exit 0
 fi
 
@@ -162,12 +176,7 @@ if [[ ! -s "$CACHE_FILE" ]]; then
   exit 0
 fi
 
-HEADER=$(
-  figlet -f slant "cissue" | while IFS= read -r line; do
-    printf '\033[36m%s\033[0m\n' "$line"
-  done
-  printf '\n\033[2m  Enter: copy issue #  │  Ctrl+o: launch Claude  │  Ctrl+r: refresh\033[0m'
-)
+HEADER=$(print_header)
 
 if [[ -n "$CURRENT_REPO" ]]; then
   FOOTER=$'\033[2m  showing: \033[0m\033[1m'"$CURRENT_REPO"$'\033[0m\033[2m  │  -g for all issues  │  -r to refresh cache ('"${CACHE_TTL}"$'s ttl)\033[0m'
@@ -181,7 +190,7 @@ result=$(fzf \
   --with-nth=2.. \
   --bind='enter:become(echo "number:{1}")' \
   --bind='ctrl-o:become(echo "prompt:{1}")' \
-  --bind="ctrl-r:reload($0 $([ "$GLOBAL" -eq 1 ] && echo '-g') --_reload)" \
+  --bind="ctrl-r:transform-header(printf '  Refreshing...')+reload($0 $([ "$GLOBAL" -eq 1 ] && echo '-g') --_reload)+transform-header($0 --_header)" \
   --header="$HEADER" \
   --header-first \
   --footer="$FOOTER" \
