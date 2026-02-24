@@ -27,6 +27,15 @@ for arg in "$@"; do
   [[ "$arg" == "--_header" ]]                     && INTERNAL_HEADER=1
 done
 
+# Internal: print header for fzf transform-header (no deps needed beyond figlet)
+if [[ "$INTERNAL_HEADER" -eq 1 ]]; then
+  figlet -f slant "cissue" | while IFS= read -r line; do
+    printf '\033[36m%s\033[0m\n' "$line"
+  done
+  printf '\n\033[2m  Enter: copy issue #  │  Ctrl+o: launch Claude  │  Ctrl+r: refresh\033[0m'
+  exit 0
+fi
+
 # Show help and exit
 if [[ "$SHOW_HELP" -eq 1 ]]; then
   cat <<'HELP'
@@ -46,6 +55,9 @@ Keybindings (in picker):
 HELP
   exit 0
 fi
+
+# Skip validation for internal fzf callbacks (already verified on initial run)
+if [[ "$INTERNAL_RELOAD" -eq 0 ]]; then
 
 # Check dependencies
 missing=()
@@ -92,19 +104,24 @@ if [[ -z "${OWNER:-}" ]]; then
   setup_org
 fi
 
-# Detect current repo (falls back to global if not in a git repo)
-CURRENT_REPO=""
-if [[ "$GLOBAL" -eq 0 ]]; then
-  CURRENT_REPO=$(gh repo view --json name --jq .name 2>/dev/null || true)
-  CURRENT_REPO="${CURRENT_REPO//[^a-zA-Z0-9._-]/}"
-fi
+fi # end skip validation
 
-if [[ -n "$CURRENT_REPO" ]]; then
-  CACHE_FILE="${HOME}/.cache/cissue-${CURRENT_REPO}.txt"
-  SEARCH_SCOPE="repo:$OWNER/$CURRENT_REPO"
-else
-  CACHE_FILE="${HOME}/.cache/cissue-global.txt"
-  SEARCH_SCOPE="org:$OWNER"
+# Detect current repo (falls back to global if not in a git repo)
+# Internal reload passes these as env vars to skip the slow gh repo view call
+if [[ -z "${CACHE_FILE:-}" ]]; then
+  CURRENT_REPO=""
+  if [[ "$GLOBAL" -eq 0 ]]; then
+    CURRENT_REPO=$(gh repo view --json name --jq .name 2>/dev/null || true)
+    CURRENT_REPO="${CURRENT_REPO//[^a-zA-Z0-9._-]/}"
+  fi
+
+  if [[ -n "$CURRENT_REPO" ]]; then
+    CACHE_FILE="${HOME}/.cache/cissue-${CURRENT_REPO}.txt"
+    SEARCH_SCOPE="repo:$OWNER/$CURRENT_REPO"
+  else
+    CACHE_FILE="${HOME}/.cache/cissue-global.txt"
+    SEARCH_SCOPE="org:$OWNER"
+  fi
 fi
 
 fetch_and_cache() {
@@ -140,24 +157,19 @@ fetch_and_cache() {
     ' > "$CACHE_FILE"
 }
 
-print_header() {
-  figlet -f slant "cissue" | while IFS= read -r line; do
-    printf '\033[36m%s\033[0m\n' "$line"
-  done
-  printf '\n\033[2m  Enter: copy issue #  │  Ctrl+o: launch Claude  │  Ctrl+r: refresh\033[0m'
-}
-
-# Internal actions for fzf bind callbacks
+# Internal: reload data for fzf reload action (skip dep/auth checks)
 if [[ "$INTERNAL_RELOAD" -eq 1 ]]; then
   fetch_and_cache
   cat "$CACHE_FILE"
   exit 0
 fi
 
-if [[ "$INTERNAL_HEADER" -eq 1 ]]; then
-  print_header
-  exit 0
-fi
+print_header() {
+  figlet -f slant "cissue" | while IFS= read -r line; do
+    printf '\033[36m%s\033[0m\n' "$line"
+  done
+  printf '\n\033[2m  Enter: copy issue #  │  Ctrl+o: launch Claude  │  Ctrl+r: refresh\033[0m'
+}
 
 # Use cache if fresh, otherwise fetch
 if [[ "$FORCE_REFRESH" -eq 1 ]] || [[ ! -f "$CACHE_FILE" ]]; then
@@ -190,7 +202,7 @@ result=$(fzf \
   --with-nth=2.. \
   --bind='enter:become(echo "number:{1}")' \
   --bind='ctrl-o:become(echo "prompt:{1}")' \
-  --bind="ctrl-r:transform-header(printf '  Refreshing...')+reload($0 $([ "$GLOBAL" -eq 1 ] && echo '-g') --_reload)+transform-header($0 --_header)" \
+  --bind="ctrl-r:transform-header(printf '  Refreshing...')+reload(CACHE_FILE='$CACHE_FILE' SEARCH_SCOPE='$SEARCH_SCOPE' $0 --_reload)+transform-header($0 --_header)" \
   --header="$HEADER" \
   --header-first \
   --footer="$FOOTER" \
